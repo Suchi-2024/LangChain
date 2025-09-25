@@ -65,9 +65,5 @@ predictions for position i can depend only on the known outputs at positions les
 
 result = chain.invoke({"text": input_text})
 print(result)
-
-# second test using "..." caused models to ask for real text
-#print(parallel_chain.invoke({"text": "..." }))
-
-# if you want to test parallel_chain separately, pass real text:
-## print(parallel_chain.invoke({"text": input_text}))
+ 
+chain.get_graph().print_ascii()
