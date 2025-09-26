@@ -72,25 +72,30 @@ final_prompt = PromptTemplate(
 )
 
 # Generate interview questions
-if submit and topic:
+if submit:
     st.chat_message("user").write(f"Topic: {topic}, Number: {number}, Level: {level}")
+    
+    if not topic.strip():  # Check for blank topic
+        warning_msg = "⚠️ Please enter a valid topic to generate questions."
+        st.chat_message("ai").write(warning_msg)
+        current_session["chat_history"].append(AIMessage(content=warning_msg))
+    else:
+        with st.spinner("Generating interview questions..."):
+            agent_sequence = final_prompt | model | final_parser
+            ai_response = agent_sequence.invoke({
+                "topic": topic,
+                "number": number,
+                "level": level
+            })
 
-    with st.spinner("Generating interview questions..."):
-        agent_sequence = final_prompt | model | final_parser
-        ai_response = agent_sequence.invoke({
-            "topic": topic,
-            "number": number,
-            "level": level
-        })
+        # Store questions in current session
+        current_session["generated_questions"] = ai_response.questions
 
-    # Store questions in current session
-    current_session["generated_questions"] = ai_response.questions
-
-    # Display questions
-    questions_text = "\n\n".join([f"Q{i+1}. {q}" for i, q in enumerate(ai_response.questions)])
-    current_session["chat_history"].append(
-        AIMessage(content=f"Here are your {ai_response.number} questions:\n\n{questions_text}")
-    )
+        # Display questions
+        questions_text = "\n\n".join([f"Q{i+1}. {q}" for i, q in enumerate(ai_response.questions)])
+        current_session["chat_history"].append(
+            AIMessage(content=f"Here are your {ai_response.number} questions:\n\n{questions_text}")
+        )
 
 # Display chat messages for current session
 for msg in current_session["chat_history"]:
