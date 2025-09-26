@@ -68,10 +68,26 @@ current_session = st.session_state.chat_sessions[st.session_state.current_sessio
 
 # --- Question Generator UI ---
 st.subheader("🎯 Generate Interview Questions")
-topic = st.text_input("Topic", placeholder="e.g., Machine Learning")
-number = st.number_input("Number of questions", min_value=1, max_value=20, value=5)
-level = st.selectbox("Difficulty", ["Easy", "Medium", "Hard"])
-submit = st.button("Generate Questions")
+session_key = st.session_state.current_session_index  # unique per session
+
+topic = st.text_input(
+    "Topic",
+    placeholder="e.g., Machine Learning",
+    key=f"topic_{session_key}"  # unique key per session
+)
+number = st.number_input(
+    "Number of questions",
+    min_value=1,
+    max_value=20,
+    value=5,
+    key=f"number_{session_key}"
+)
+level = st.selectbox(
+    "Difficulty",
+    ["Easy", "Medium", "Hard"],
+    key=f"level_{session_key}"
+)
+submit = st.button("Generate Questions", key=f"submit_{session_key}")
 
 # --- Schema for structured output ---
 class FinalInterviewOutput(BaseModel):
