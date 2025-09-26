@@ -1,16 +1,14 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
-from langchain.memory import ConversationBufferMemory
 from langchain_core.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
-from langchain_core.runnables import RunnableSequence
 from typing import Literal
 import streamlit as st
 
 load_dotenv()
 
-#Heading
+# Heading
 st.title("🤖 AI Interview Question Generator")
 st.write(
     "Generate tailored interview questions based on a topic, difficulty level, and number of questions. "
@@ -20,66 +18,29 @@ st.write(
 # LLM
 model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.6)
 
-# Memory
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+# Final schema for structured output
+class FinalInterviewOutput(BaseModel):
+    topic: str = Field(description="Interview topic")
+    number: int = Field(description="Number of questions")
+    level: Literal["Easy", "Medium", "Hard"] = Field(description="Difficulty level")
+    questions: list[str] = Field(description="List of generated interview questions")
 
-# Pydantic parser
-class InterviewQuestions(BaseModel):
-    topic: str = Field(max_length=50, description="Enter the topic")
-    number: int = Field(gt=0, lt=25, description="Number of interview questions")
-    level: Literal["Easy", "Medium", "Hard"] = Field(description="Level of interview questions")
-parser = PydanticOutputParser(pydantic_object=InterviewQuestions)
+final_parser = PydanticOutputParser(pydantic_object=FinalInterviewOutput)
 
-# Prompts
-input_prompt = PromptTemplate(
-    template="Extract topic, number, level from: topic={topic}, number={number}, level={level}\n{format_instructions}",
+# Prompt (only one call to model)
+final_prompt = PromptTemplate(
+    template=(
+        "Generate {number} interview questions on the topic '{topic}' at {level} level.\n\n"
+        "Return the output as a JSON object with this structure:\n"
+        "{format_instructions}"
+    ),
     input_variables=["topic", "number", "level"],
-    partial_variables={"format_instructions": parser.get_format_instructions()}
+    partial_variables={"format_instructions": final_parser.get_format_instructions()}
 )
 
-plan_prompt = PromptTemplate(
-    template="Create a sequence of {number} interview questions for {level} level on the topic '{topic}'",
-    input_variables=["topic", "number", "level"]
-)
+# RunnableSequence (optimized: only one LLM call)
+agent_sequence = final_prompt | model | final_parser
 
-output_prompt = PromptTemplate(
-    template="Format the following questions clearly:\n{planned_questions}",
-    input_variables=["planned_questions"]
-)
-
-# RunnableSequence
-agent_sequence = (
-    {
-        "topic": lambda x: x["topic"],
-        "number": lambda x: x["number"],
-        "level": lambda x: x["level"]
-    } 
-    | input_prompt 
-    | model 
-    | parser 
-    | (
-        lambda x: plan_prompt.format(
-            topic=x.topic,
-            number=x.number,
-            level=x.level
-        )
-    )
-    | model
-    | (lambda x: output_prompt.format(planned_questions=x.text))
-    | model
-)
-
-
-
-# Run agent
-# topic = input("Enter a topic: ")
-# number = int(input("Enter number of questions: "))
-# level = input("Enter level of questions (Easy, Medium, Hard): ")
-
-# print("\nGenerated Interview Questions:\n")
-# print(result.content)
-
-# Inputs
 # Sidebar inputs
 with st.sidebar:
     st.header("Input Parameters")
@@ -112,7 +73,11 @@ if submit and topic:
             "level": level
         })
     
-    # Show AI response
-    st.chat_message("assistant").write(ai_response.content)
+    # Show Heading
+    st.subheader(f"📌 {ai_response.topic} — {ai_response.level} ({ai_response.number} Questions)")
+    
+    # Show Questions
+    for i, q in enumerate(ai_response.questions, start=1):
+        st.markdown(f"**Q{i}.** {q}")
 else:
-    st.warning("Enter a topic and click submit to proceed")
+    st.warning("Enter a topic and click 'Generate Questions' to proceed")
