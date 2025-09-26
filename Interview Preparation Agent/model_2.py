@@ -12,6 +12,15 @@ load_dotenv()
 # Initialize LLM
 model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.6)
 
+
+# Initialize session state
+if "chat_sessions" not in st.session_state:
+    st.session_state.chat_sessions = []
+
+if "current_session_index" not in st.session_state:
+    st.session_state.current_session_index = None
+
+
 # Heading
 st.title("🤖 AI Interview Question Generator & Multi-Session Chat")
 
@@ -27,15 +36,13 @@ if not st.session_state.chat_sessions:
         """
     )
 
-    # Big button in the main page
     if st.button("🚀 Start Chat"):
         st.session_state.chat_sessions.append({
             "chat_history": [SystemMessage(content="You are an Interview Preparation Agent.")],
             "generated_questions": []
         })
         st.session_state.current_session_index = len(st.session_state.chat_sessions) - 1
-        st.rerun()   # reload to jump directly into chat
-
+        st.rerun()
 
 # Sidebar: New Chat / Session selection
 if "chat_sessions" not in st.session_state:
