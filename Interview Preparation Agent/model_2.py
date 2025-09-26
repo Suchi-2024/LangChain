@@ -15,6 +15,28 @@ model = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.6)
 # Heading
 st.title("🤖 AI Interview Question Generator & Multi-Session Chat")
 
+# Intro Section
+if not st.session_state.chat_sessions:
+    st.markdown(
+        """
+        ### 👋 Welcome!
+        Start preparing for your interviews by generating AI-powered questions 
+        and chatting with your personal assistant.
+
+        👉 Click below to **start your first chat session**:
+        """
+    )
+
+    # Big button in the main page
+    if st.button("🚀 Start Chat"):
+        st.session_state.chat_sessions.append({
+            "chat_history": [SystemMessage(content="You are an Interview Preparation Agent.")],
+            "generated_questions": []
+        })
+        st.session_state.current_session_index = len(st.session_state.chat_sessions) - 1
+        st.rerun()   # reload to jump directly into chat
+
+
 # Sidebar: New Chat / Session selection
 if "chat_sessions" not in st.session_state:
     st.session_state.chat_sessions = []
@@ -74,7 +96,7 @@ final_prompt = PromptTemplate(
 # Generate interview questions
 if submit:
     st.chat_message("user").write(f"Topic: {topic}, Number: {number}, Level: {level}")
-    
+
     if not topic.strip():  # Check for blank topic
         warning_msg = "⚠️ Please enter a valid topic to generate questions."
         st.chat_message("ai").write(warning_msg)
