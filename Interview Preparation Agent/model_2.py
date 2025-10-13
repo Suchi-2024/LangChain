@@ -28,7 +28,8 @@ with st.sidebar:
     if st.button("➕ New Chat"):
         st.session_state.chat_sessions.append({
             "chat_history": [SystemMessage(content="You are an Interview Preparation Agent.")],
-            "generated_questions": []
+            "generated_questions": [],
+            "topic": None  # store topic explicitly
         })
         st.session_state.current_session_index = len(st.session_state.chat_sessions) - 1
         st.rerun()
@@ -45,19 +46,18 @@ with st.sidebar:
 
 # --- If no sessions exist, show Welcome Page ---
 if not st.session_state.chat_sessions:
-    st.markdown(
-        """
+    st.markdown("""
         ### 👋 Welcome!
         Start preparing for your interviews by generating AI-powered questions 
         and chatting with your personal assistant.
 
         👉 Click below to **start your first chat session**:
-        """
-    )
+    """)
     if st.button("🚀 Start Chat"):
         st.session_state.chat_sessions.append({
             "chat_history": [SystemMessage(content="You are an Interview Preparation Agent.")],
-            "generated_questions": []
+            "generated_questions": [],
+            "topic": None
         })
         st.session_state.current_session_index = 0
         st.rerun()
@@ -68,25 +68,11 @@ current_session = st.session_state.chat_sessions[st.session_state.current_sessio
 
 # --- Question Generator UI ---
 st.subheader("🎯 Generate Interview Questions")
-session_key = st.session_state.current_session_index  # unique per session
+session_key = st.session_state.current_session_index
 
-topic = st.text_input(
-    "Topic",
-    placeholder="e.g., Machine Learning",
-    key=f"topic_{session_key}"  # unique key per session
-)
-number = st.number_input(
-    "Number of questions",
-    min_value=1,
-    max_value=20,
-    value=5,
-    key=f"number_{session_key}"
-)
-level = st.selectbox(
-    "Difficulty",
-    ["Easy", "Medium", "Hard"],
-    key=f"level_{session_key}"
-)
+topic = st.text_input("Topic", placeholder="e.g., Machine Learning", key=f"topic_{session_key}")
+number = st.number_input("Number of questions", min_value=1, max_value=20, value=5, key=f"number_{session_key}")
+level = st.selectbox("Difficulty", ["Easy", "Medium", "Hard"], key=f"level_{session_key}")
 submit = st.button("Generate Questions", key=f"submit_{session_key}")
 
 # --- Schema for structured output ---
@@ -94,14 +80,15 @@ class FinalInterviewOutput(BaseModel):
     topic: str
     number: int
     level: Literal["Easy", "Medium", "Hard"]
-    questions: list[str]
+    qa_pairs: list[dict]  # Each item: {"question": str, "answer": str}
 
 final_parser = PydanticOutputParser(pydantic_object=FinalInterviewOutput)
 
 # --- Prompt Template ---
 final_prompt = PromptTemplate(
     template=(
-        "Generate {number} interview questions on the topic '{topic}' at {level} level.\n\n"
+        "Generate {number} interview questions with concise, high-quality answers "
+        "on the topic '{topic}' at {level} difficulty level.\n\n"
         "Return the output as a JSON object with this structure:\n"
         "{format_instructions}"
     ),
@@ -115,10 +102,10 @@ if submit:
 
     if not topic.strip():
         warning_msg = "⚠️ Please enter a valid topic to generate questions."
-        st.chat_message("ai").write(warning_msg)
+        st.chat_message("assistant").write(warning_msg)
         current_session["chat_history"].append(AIMessage(content=warning_msg))
     else:
-        with st.spinner("Generating interview questions..."):
+        with st.spinner("Generating interview questions and answers..."):
             agent_sequence = final_prompt | model | final_parser
             ai_response = agent_sequence.invoke({
                 "topic": topic,
@@ -126,32 +113,72 @@ if submit:
                 "level": level
             })
 
-        # Store and display
-        current_session["generated_questions"] = ai_response.questions
-        questions_text = "\n\n".join([f"Q{i+1}. {q}" for i, q in enumerate(ai_response.questions)])
-        current_session["chat_history"].append(
-            AIMessage(content=f"Here are your {ai_response.number} questions:\n\n{questions_text}")
+        current_session["generated_questions"] = ai_response.qa_pairs
+        current_session["topic"] = topic  # store topic for chat enforcement
+
+         # --- Append new questions instead of overwriting ---
+        existing_count = len(current_session["generated_questions"])
+        for i, pair in enumerate(ai_response.qa_pairs):
+            current_session["generated_questions"].append(pair)
+            qa_text = f"Q{existing_count + i + 1}. {pair['question']}\nA{existing_count + i + 1}. {pair['answer']}"
+            current_session["chat_history"].append(AIMessage(content=qa_text))
+            
+        # Format Q&A nicely
+        for i, pair in enumerate(ai_response.qa_pairs):
+            qa_text = f"Q{i+1}. {pair['question']}\nA{i+1}. {pair['answer']}"
+            current_session["chat_history"].append(AIMessage(content=qa_text))
+
+# --- Display Q&A and topic-focused chat ---
+if current_session["generated_questions"]:
+    st.subheader("📝 Generated Questions & Answers")
+    
+    for i, pair in enumerate(current_session["generated_questions"]):
+        with st.expander(f"Q{i+1}: {pair['question']}"):
+            st.markdown(f"**Answer:**\n\n{pair['answer']}")
+
+    st.divider()
+    st.markdown("### 💬 Continue Chat with the topic")
+    user_input = st.chat_input("Ask about the questions, get hints, or explanations...")
+
+    if user_input:
+        st.chat_message("user").write(user_input)
+        current_session["chat_history"].append(HumanMessage(content=user_input))
+
+        # --- Check if input is relevant to topic ---
+        relevance_prompt = f"""
+        The current interview topic is: "{current_session['topic']}".
+        The user message is: "{user_input}".
+        Is this message relevant to the topic (answer yes or no only)?
+        """
+        relevance_check = model.invoke(relevance_prompt).content.strip().lower()
+
+        if "no" in relevance_check:
+            warning_text = (
+                f"⚠️ Your message doesn't seem related to the topic "
+                f"'{current_session['topic']}'. Please stay on topic, "
+                "or start a new chat from the sidebar."
+            )
+            st.chat_message("assistant").warning(warning_text)
+            current_session["chat_history"].append(AIMessage(content=warning_text))
+            st.stop()
+
+        # --- Continue topic-based chat ---
+        qa_context = "\n\n".join([
+            f"Q{i+1}: {pair['question']}\nA{i+1}: {pair['answer']}"
+            for i, pair in enumerate(current_session["generated_questions"])
+        ])
+
+        context_prompt = (
+            f"You are an Interview Preparation Assistant specialized in '{current_session['topic']}'.\n\n"
+            f"Here are the generated questions and answers:\n{qa_context}\n\n"
+            f"The user says: '{user_input}'.\n"
+            f"Respond concisely (~100 words) and stay strictly within the topic."
         )
 
-# --- Display Chat History ---
-for msg in current_session["chat_history"]:
-    role = "user" if isinstance(msg, HumanMessage) else "assistant" if isinstance(msg, AIMessage) else "system"
-    st.chat_message(role).write(msg.content if not isinstance(msg, dict) else msg.get("content", ""))
+        with st.spinner("AI is thinking..."):
+            ai_result = model.invoke(context_prompt)
 
-# --- Chat Input ---
-user_input = st.chat_input("Ask about the questions, get hints, or answers...")
-if user_input:
-    st.chat_message("user").write(user_input)
-    current_session["chat_history"].append(HumanMessage(content=user_input))
-
-    context_prompt = (
-        "Here are the generated interview questions:\n" +
-        "\n".join([f"Q{i+1}: {q}" for i, q in enumerate(current_session["generated_questions"])]) +
-        f"\n\nUser asks: {user_input}\nPlease answer based on these questions."
-    )
-
-    with st.spinner("AI is typing..."):
-        ai_result = model.invoke(context_prompt)
-
-    st.chat_message("assistant").write(ai_result.content)
-    current_session["chat_history"].append(AIMessage(content=ai_result.content))
+        st.chat_message("assistant").write(ai_result.content)
+        current_session["chat_history"].append(AIMessage(content=ai_result.content))
+else:
+    st.info("👆 Please generate interview questions first to start chatting.")
