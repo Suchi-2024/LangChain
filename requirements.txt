@@ -24,3 +24,9 @@ python-dotenv
 # Machine Learning Utilities
 numpy
 scikit-learn
+
+# Deep Learning Utilities
+torch
+
+# Core
+streamlit
